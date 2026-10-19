@@ -50,7 +50,9 @@ const curve = (bounce: number, tuned: number, x1 = 0.28, x2 = 0.36) =>
 /* the one helper this file wants from the shared kit */
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-type Item = { key: string; label: string; Icon: typeof House };
+export type IconBarKey = "home" | "search" | "files" | "saved" | "you";
+
+type Item = { key: IconBarKey; label: string; Icon: typeof House };
 
 /* the bar and the dock carry the same set: they are the same
    navigation in two different materials */
@@ -92,8 +94,12 @@ function IconNav({
   bounce = 50,
   speed = 50,
   hug = 6,
+  onSelect,
+  ariaLabel = "Main",
 }: {
   items: Item[];
+  onSelect?: (key: IconBarKey) => void;
+  ariaLabel?: string;
   /* the slot itself comes from --bar-slot, shared with the
      toolbar; only the glyph inside it is a prop */
   glyph?: number;
@@ -109,6 +115,7 @@ function IconNav({
 }) {
   const vertical = axis === "column";
   const [active, setActive] = useState(items[0].key);
+  const activeRef = useRef(active);
   const trackRef = useRef<HTMLElement | null>(null);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [ind, setInd] = useState<Ind | null>(null);
@@ -118,7 +125,7 @@ function IconNav({
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  const measure = (k: string): Ind | null => {
+  const measure = (k: IconBarKey): Ind | null => {
     const el = refs.current[k];
     if (!el) return null;
     return vertical
@@ -128,7 +135,8 @@ function IconNav({
 
   useLayoutEffect(() => {
     const settle = () => {
-      const next = measure(active);
+      window.clearTimeout(timer.current);
+      const next = measure(activeRef.current);
       if (!next) return;
       indRef.current = next;
       setPhase("idle");
@@ -137,20 +145,25 @@ function IconNav({
     settle();
     const ro = new ResizeObserver(settle);
     if (trackRef.current) ro.observe(trackRef.current);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(timer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vertical]);
+  }, [vertical, hug]);
 
-  const select = (k: string) => {
+  const select = (k: IconBarKey) => {
     if (k === active) return;
     /* pitched by seat, so moving right up the bar rises and
        coming back down falls — the indicator's travel, heard */
     const to = measure(k);
     const from = indRef.current;
+    activeRef.current = k;
     setActive(k);
+    onSelect?.(k);
     if (!to) return;
     window.clearTimeout(timer.current);
-    if (!from) {
+    if (!from || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       indRef.current = to;
       setPhase("settle");
       setInd(to);
@@ -204,7 +217,7 @@ function IconNav({
       className="gnav"
       data-orientation={vertical ? "vertical" : "horizontal"}
       style={vars}
-      aria-label="Main"
+      aria-label={ariaLabel}
     >
       <span className="gnav-ind" data-phase={phase} style={style} aria-hidden />
       {items.map(({ key, label, Icon }) => (
@@ -215,11 +228,12 @@ function IconNav({
           className="gnav-item"
           data-active={active === key}
           aria-label={label}
+          title={label}
           aria-current={active === key ? "page" : undefined}
           onClick={() => select(key)}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <Icon size={glyph} strokeWidth={2} />
+          <Icon size={glyph} strokeWidth={2} aria-hidden="true" />
         </button>
       ))}
     </nav>
@@ -234,6 +248,8 @@ function IconNav({
 const NAV_CORNER = 26;
 
 export function IconBar(props: {
+  onSelect?: (key: IconBarKey) => void;
+  ariaLabel?: string;
   glyph?: number;
   axis?: "row" | "column";
   dilate?: number;
